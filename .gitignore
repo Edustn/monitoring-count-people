@@ -1,0 +1,17 @@
+/venv
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Modelos YOLO baixados em runtime
+*.pt
+
+# Saídas de contagem (dados locais)
+counts.json
+*.db
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
