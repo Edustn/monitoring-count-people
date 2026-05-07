@@ -24,15 +24,19 @@ def count_in_interval(
     store: SnapshotStore,
     start: datetime,
     end: datetime,
+    camera_id: Optional[str] = None,
 ) -> dict:
-    """Retorna {'in', 'out', 'total'} entre start e end (datetimes UTC)."""
+    """Retorna {'in', 'out', 'total'} entre start e end (datetimes UTC).
+
+    Se `camera_id` for informado, filtra os snapshots dessa câmera apenas.
+    """
     if end < start:
         raise ValueError("end deve ser >= start")
 
     baseline: Optional[Snapshot] = None  # último snapshot <= start
     final: Optional[Snapshot] = None     # último snapshot <= end
 
-    for snap in store.iter_snapshots():
+    for snap in store.iter_snapshots(camera_id=camera_id):
         ts = _parse(snap.timestamp)
         if ts <= start:
             baseline = snap

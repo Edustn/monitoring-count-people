@@ -102,25 +102,27 @@ O peso `yolov8n.pt` (~6 MB) é baixado automaticamente na primeira execução.
 ### Comando básico
 
 ```bash
-python main.py --source <fonte> --line <x1,y1,x2,y2>
+python main.py --source <fonte> --line <x1,y1,x2,y2> --camera-id <identificador>
 ```
 
 A linha aceita **pixels** (`320,0,320,480`) ou **porcentagens** (`50%,0%,50%,100%`). Porcentagens são resolvidas no primeiro frame contra a resolução real, então não é preciso saber se a webcam é 640x480 ou 1920x1080.
+
+O `--camera-id` é uma string que identifica a fonte (ex: `"loja-entrada"`, `"saida-fundos"`, `"cam-01"`). Ele é gravado em cada snapshot e permite que múltiplas câmeras escrevam no mesmo arquivo sem conflito — depois você consulta filtrando por câmera.
 
 ### Exemplos
 
 ```bash
 # Webcam (linha vertical no meio do frame)
-python main.py --source 0 --line 50%,0%,50%,100%
+python main.py --source 0 --line 50%,0%,50%,100% --camera-id minha-webcam
 
 # Arquivo de vídeo (linha horizontal embaixo, simulando porta vista de cima)
-python main.py --source video.mp4 --line 0%,80%,100%,80%
+python main.py --source video.mp4 --line 0%,80%,100%,80% --camera-id loja-entrada
 
 # Stream RTSP, sem janela de visualização (servidor headless)
-python main.py --source "rtsp://user:pass@cam/stream" --line 50%,0%,50%,100% --no-show
+python main.py --source "rtsp://user:pass@cam/stream" --line 50%,0%,50%,100% --camera-id portao-1 --no-show
 
 # Linha diagonal, snapshots a cada 2s, modelo maior (mais preciso)
-python main.py --source 0 --line 0%,0%,100%,100% --interval 2 --model yolov8s.pt
+python main.py --source 0 --line 0%,0%,100%,100% --camera-id cam-01 --interval 2 --model yolov8s.pt
 ```
 
 ### Todos os parâmetros
@@ -129,6 +131,7 @@ python main.py --source 0 --line 0%,0%,100%,100% --interval 2 --model yolov8s.pt
 | --- | --- | --- |
 | `--source` | (obrigatório) | índice de webcam (`0`), caminho de vídeo, ou URL RTSP |
 | `--line` | (obrigatório) | `x1,y1,x2,y2` em pixels ou `%` |
+| `--camera-id` | (obrigatório) | identificador da câmera, gravado em cada snapshot |
 | `--model` | `yolov8n.pt` | peso YOLO. `n`=nano (CPU), `s`/`m`/`l`/`x` cada vez maiores e mais precisos |
 | `--interval` | `10.0` | segundos entre snapshots gravados |
 | `--storage` | `counts.json` | arquivo JSON-lines de saída |
@@ -151,13 +154,15 @@ Enquanto roda com a janela ligada:
 Cada snapshot é uma linha do arquivo `counts.json` (formato JSON-lines):
 
 ```json
-{"timestamp": "2026-05-02T18:42:14.353883+00:00", "in": 12, "out": 7, "total": 19}
-{"timestamp": "2026-05-02T18:42:24.430766+00:00", "in": 13, "out": 7, "total": 20}
+{"camera_id": "loja-entrada", "timestamp": "2026-05-02T18:42:14.353883+00:00", "in": 12, "out": 7, "total": 19}
+{"camera_id": "loja-entrada", "timestamp": "2026-05-02T18:42:24.430766+00:00", "in": 13, "out": 7, "total": 20}
+{"camera_id": "saida-fundos",  "timestamp": "2026-05-02T18:42:25.118200+00:00", "in":  4, "out": 9, "total": 13}
 ```
 
+- `camera_id` identifica a fonte do snapshot. Múltiplas câmeras (cada uma rodando seu próprio processo `main.py` com `--camera-id` distinto) podem gravar no mesmo arquivo sem conflito.
 - `timestamp` em ISO 8601, sempre em **UTC**.
-- `in` e `out` são **acumulados** desde o início da execução do processo (nunca decrementam).
-- O arquivo é **append-only** — múltiplas execuções vão acrescentando novas linhas.
+- `in` e `out` são **acumulados** desde o início da execução daquele processo (nunca decrementam). Cada câmera tem seu próprio acumulado independente.
+- O arquivo é **append-only** — múltiplas execuções/câmeras vão acrescentando novas linhas.
 - Robusto a crashes: se o processo morrer no meio de uma escrita, no máximo um snapshot é perdido e o arquivo continua legível.
 
 > **Atenção:** quando o processo é reiniciado, o `LineCounter` zera (começa em `IN=0, OUT=0`), mas as linhas antigas continuam no arquivo. As ferramentas de análise lidam com isso usando **diferenças entre snapshots vizinhos**, não valores absolutos.
@@ -175,13 +180,17 @@ N = snapshot_em_T2 - snapshot_em_T1
 Use o script de exemplo:
 
 ```bash
+# todas as câmeras combinadas
 python example_query.py counts.json 2026-05-02T10:00:00+00:00 2026-05-02T11:00:00+00:00
+
+# filtrando por câmera específica
+python example_query.py counts.json 2026-05-02T10:00:00+00:00 2026-05-02T11:00:00+00:00 loja-entrada
 ```
 
 Saída:
 
 ```
-Intervalo: 2026-05-02T10:00:00+00:00  ->  2026-05-02T11:00:00+00:00
+Intervalo: 2026-05-02T10:00:00+00:00  ->  2026-05-02T11:00:00+00:00  (camera=loja-entrada)
   Entradas: 47
   Saídas:   42
   Total:    89
@@ -194,11 +203,14 @@ from datetime import datetime
 from analytics import count_in_interval
 from storage import SnapshotStore
 
+# Sem camera_id no construtor: store em modo somente-leitura
 store = SnapshotStore("counts.json")
+
 result = count_in_interval(
     store,
     datetime.fromisoformat("2026-05-02T10:00:00+00:00"),
     datetime.fromisoformat("2026-05-02T11:00:00+00:00"),
+    camera_id="loja-entrada",  # opcional: filtra por câmera
 )
 print(result)  # {'in': 47, 'out': 42, 'total': 89}
 ```

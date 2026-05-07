@@ -122,6 +122,7 @@ def draw_overlay(
 def process_video(
     source,
     line_tokens: LineTokens,
+    camera_id: str,
     model_path: str = "yolov8n.pt",
     snapshot_interval: float = 10.0,
     storage_path: str = "counts.json",
@@ -130,9 +131,10 @@ def process_video(
     """Loop principal: detecta + rastreia + conta + persiste.
 
     A linha é resolvida no primeiro frame para suportar tokens em porcentagem.
+    Cada snapshot gravado carrega o `camera_id` para identificar a fonte.
     """
     model = YOLO(model_path)
-    store = SnapshotStore(storage_path)
+    store = SnapshotStore(storage_path, camera_id=camera_id)
     counter: LineCounter | None = None  # criado no 1º frame quando soubermos o tamanho
 
     last_snapshot = time.time()
@@ -214,11 +216,14 @@ def main():
                         help="arquivo JSON-lines para gravar os snapshots")
     parser.add_argument("--no-show", action="store_true",
                         help="desabilita a janela de visualização (útil em servidor)")
+    parser.add_argument("--camera-id", required=True,
+                        help="identificador da câmera (ex: 'loja-entrada', 'cam-01'); gravado em cada snapshot")
     args = parser.parse_args()
 
     process_video(
         source=parse_source(args.source),
         line_tokens=parse_line(args.line),
+        camera_id=args.camera_id,
         model_path=args.model,
         snapshot_interval=args.interval,
         storage_path=args.storage,
